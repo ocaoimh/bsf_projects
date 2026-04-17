@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Projets IA — Bibliothèques Sans Frontières</title>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<!-- Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="projets_IA_BSF.css">
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="nav-brand" href="#">
+    <img class="nav-logo-img" src="img/bulle-picto-bsf-corail.png" alt="BSF">
+    <div class="nav-logo-text">Bibliothèques Sans Frontières<br><span>Projets Intelligence Artificielle</span></div>
+  </a>
+  <div class="nav-right">Mars 2026 — Document interne</div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-label">Réseau BSF — Tableau de bord</div>
+    <h1>Nos projets <em>Intelligence Artificielle</em></h1>
+    <p>Vue d'ensemble des projets IA du Réseau BSF — solutions hors ligne, programmes éducatifs, appui humanitaire et souveraineté numérique.</p>
+    <div class="stats-band" id="statsband"></div>
+    <!-- OVERVIEW MAP -->
+    <div class="map-section">
+      <div id="overviewMap"></div>
+    </div>
+  </div>
+</div>
+
+<!-- FILTERS -->
+<div class="filter-bar">
+  <div class="filter-bar-inner">
+    <input class="search-input" type="text" placeholder="🔍  Rechercher un projet…" id="searchInput" oninput="filterCards()">
+    <div class="filter-chips">
+      <button class="chip active" onclick="setFilter('tous',this)">Tous</button>
+      <button class="chip" onclick="setFilter('en cours',this)">En cours</button>
+      <button class="chip" onclick="setFilter('envisagé',this)">Envisagé</button>
+      <button class="chip" onclick="setFilter('terminé',this)">Terminé</button>
+      <button class="chip" onclick="setFilter('hors ligne',this)">Hors ligne</button>
+    </div>
+    <span class="count-label" id="countLabel"></span>
+  </div>
+</div>
+
+<!-- GRID -->
+<div class="grid-section">
+  <div class="grid" id="projectGrid"></div>
+</div>
+
+<!-- OVERLAY / DRAWER -->
+<div class="overlay" id="overlay" onclick="closeDrawer(event)">
+  <div class="drawer" id="drawer">
+    <div class="drawer-header">
+      <button class="drawer-close" onclick="closeDrawerDirect()">✕</button>
+      <div class="drawer-badge-row" id="drawerBadges"></div>
+      <div class="drawer-title" id="drawerTitle"></div>
+      <div class="drawer-subtitle" id="drawerSubtitle"></div>
+    </div>
+    <div class="kpi-row" id="kpiRow"></div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </div>
+</div>
+
+<!-- Scripts moved here so page content renders immediately, before CDN loads -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<!-- FOOTER -->
+<footer>
+  <strong>Bibliothèques Sans Frontières</strong> — Tableau de bord Projets IA — Usage interne &nbsp;|&nbsp; Mars 2026
+</footer>
+
+<script>
+// ──────────────────────────────────────────────────────────────────
+// GOOGLE SHEETS DATA SOURCE
+// ──────────────────────────────────────────────────────────────────
+// HOW TO CONNECT YOUR GOOGLE SHEET:
+//   1. Open your Google Sheet (imported from projets_IA_BSF_data.csv)
+//   2. File → Share → Publish to web → select "Sheet1" → select "CSV" → click Publish
+//   3. Copy the URL and paste it below, replacing VOTRE_URL_ICI
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSRfQy5gM7onUwLlW2n1sHZo9cL4ccVzYnG5RmykoG0GBkGP_a2000CzZmPPPoLx31lGQFPKtgpPJAu/pub?gid=1070220182&single=true&output=csv';
+
+let PROJECTS = []; // populated from Google Sheets at load time
+
+function parseMarkers(str) {
+  if (!str || !str.trim()) return [];
+  return str.split(';').map(m => {
+    const parts = m.trim().split(',');
+    if (parts.length < 2) return null;
+    return { pos: [parseFloat(parts[0]), parseFloat(parts[1])], label: (parts.slice(2).join(',') || '').trim() };
+  }).filter(Boolean);
+}
+
+function parseProject(row) {
+  const budgetTotal = (row.budget_total && row.budget_total.trim() !== '') ? parseFloat(row.budget_total) : null;
+  const budgetSec   = (row.budget_securise && row.budget_securise.trim() !== '') ? parseFloat(row.budget_securise) : null;
+  const center      = row.mapCenter ? row.mapCenter.split(',').map(Number) : [0, 0];
+  return {
+    nom:             row.nom || '',
+    zone:            row.zone || '',
+    domaines:        row.domaines ? row.domaines.split('|').map(s => s.trim()).filter(Boolean) : [],
+    contexte:        row.contexte || '',
+    objectifs:       row.objectifs || '',
+    approche:        row.approche || '',
+    activites:       row.activites || '',
+    langues:         row.langues ? row.langues.split('|').map(s => s.trim()).filter(Boolean) : [],
+    evaluation:      row.evaluation || '',
+    statut:          row.statut || 'envisagé',
+    chronogramme:    row.chronogramme || 'À définir',
+    mode:            row.mode || '',
+    hardware:        row.hardware || '',
+    populations:     row.populations || '',
+    portee:          row.portee || '',
+    indicateurs:     row.indicateurs || '',
+    partenaires:     row.partenaires || '',
+    budget_total:    (budgetTotal !== null && !isNaN(budgetTotal)) ? budgetTotal : null,
+    budget_securise: (budgetSec   !== null && !isNaN(budgetSec))   ? budgetSec   : null,
+    scale_up:        row.scale_up || '',
+    inria:           row.inria || '',
+    accent:          row.accent || 'coral',
+    mapCenter:       center,
+    mapZoom:         row.mapZoom ? parseInt(row.mapZoom) : 4,
+    markers:         parseMarkers(row.markers)
+  };
+}
+
+function loadFromSheet(url) {
+  return new Promise((resolve, reject) => {
+    if (typeof Papa === 'undefined') { reject(new Error('PapaParse not loaded')); return; }
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: results => {
+        PROJECTS = results.data.map(parseProject).filter(p => p.nom);
+        resolve();
+      },
+      error: err => reject(err)
+    });
+  });
+}
+
+// ── LEGACY FALLBACK DATA (used if sheet URL is not yet configured) ──
+const PROJECTS_FALLBACK = [
+  {
+    nom: "kPROF",
+    zone: "Sénégal, Côte d'Ivoire",
+    domaines: ["Éducation", "Formation professionnelle"],
+    contexte: "Les enseignants du primaire en Afrique de l'Ouest font face à des défis structurels majeurs : classes surchargées, manque de matériel pédagogique structuré, et un taux très élevé d'enseignants sous-formés. Environ 50 % des enseignants ne disposent pas d'une certification de base pour enseigner.",
+    objectifs: "Fournir un outil de développement professionnel continu aux enseignants du primaire, accessible sans connexion Internet et aligné sur les programmes scolaires nationaux. Renforcer les compétences pédagogiques, linguistiques et numériques des enseignants via un assistant IA fine-tuné sur les curricula officiels.",
+    approche: "Développer un LLM fine-tuné pour assister les enseignants dans la création de fiches de préparation, d'exercices et de séquences pédagogiques alignés sur le programme scolaire national.",
+    activites: "Customisation d'un LLM pour pré-génération de plans de cours via un chatbot déployé sur Ideas Cube et Android ; développement de modules de formation sur l'écologie, les compétences numériques et l'inclusion des filles.",
+    langues: ["Français"], evaluation: "Pre/post", statut: "en cours",
+    chronogramme: "Mars 2026 – Novembre 2026", mode: "Hors ligne",
+    hardware: "Android & Ideas Cube",
+    populations: "Enseignants (primaire) et élèves (K-6)",
+    portee: "700 enseignants, 4 000 élèves", indicateurs: "80 % taux d'utilisation",
+    partenaires: "Ministère de l'Éducation Nationale (Sénégal), Enabel, DG INTPA (UE)",
+    budget_total: 400000, budget_securise: 0,
+    scale_up: "Extension à la Côte d'Ivoire et au Burkina Faso (2026-2027) avec Enabel et l'UE ; généralisation nationale au Sénégal (2027-2030). 150 k€ nécessaires pour l'ajout des langues nationales (Wolof, Pulaar), un dashboard inspecteurs et les commandes vocales.",
+    inria: "Entraînement de Small Language Models (SLM) frugaux sur curriculum national pour déploiement sur Raspberry Pi ; RAG pour conformité stricte au programme ; traitement des langues locales (Wolof, Pulaar).",
+    accent: "coral",
+    // Map: primary coords [lat, lng], zoom, extra markers
+    mapCenter: [12.5, -8.0], mapZoom: 4,
+    markers: [
+      { pos: [12.88568, -12.28636], label: "Sénégal" }]
+  },
+  {
+    nom: "REDLINE — Handbook CRSV",
+    zone: "Nigeria, RDC, Ukraine",
+    domaines: ["Droit international", "Humanitaire"],
+    contexte: "Les violences sexuelles liées aux conflits (CRSV) sont l'une des violations les plus graves du droit international humanitaire, mais aussi l'une des moins documentées. Les acteurs humanitaires et juridiques font face à la complexité du jargon juridique, la sensibilité extrême des sujets traités, et le besoin impératif de confidentialité.",
+    objectifs: "Renforcer la capacité des acteurs humanitaires et juridiques à prévenir et documenter les violences sexuelles liées aux conflits, en rendant le droit international accessible en langage naturel.",
+    approche: "Fournir un chatbot juridique permettant aux acteurs humanitaires d'interroger en langage naturel les textes de droit international et d'obtenir des explications claires avec les références associées.",
+    activites: "Modélisation d'un corpus juridique multilingue et développement d'un assistant IA embarqué sur RPi5 ; intégration d'une recherche assistée par IA ; génération assistée de documents juridiques ; déploiement sur le site de la Fondation Mukwege et sur RPi5.",
+    langues: ["Français", "Anglais", "Ukrainien"], evaluation: "Satisfaction", statut: "en cours",
+    chronogramme: "Décembre 2025 – Décembre 2026", mode: "Hors ligne & en ligne",
+    hardware: "Ideas Cube & application web",
+    populations: "ONGs, OSCs, juristes, avocats",
+    portee: "450 utilisateurs directs ; 5 000+ bénéficiaires indirects",
+    indicateurs: "96 % satisfaction (FR & EN), 80 % satisfaction (UK)",
+    partenaires: "CDCS, Fondation Mukwege, ONU (Bureau RSSG-VCSC)",
+    budget_total: 534593, budget_securise: 0,
+    scale_up: "Extension à d'autres pays francophones en zone de conflit (Sahel, RCA) avec la Fondation Mukwege et l'ONU ; adaptation à de nouvelles langues (arabe, swahili). Budget estimé : 150–200 k€.",
+    inria: "Optimisation linguistique multilingue (NLP juridique) ; mise à jour dynamique des corpus ; recherche sur la détection d'hallucinations dans les contextes juridiques sensibles.",
+    accent: "navy",
+    mapCenter: [20, 22], mapZoom: 1,
+    markers: [
+      { pos: [9.0820, 8.6753], label: "Nigeria" },
+      { pos: [-4.0383, 21.7587], label: "RDC" },
+      { pos: [48.3794, 31.1656], label: "Ukraine" }
+    ]
+  },
+  {
+    nom: "KARIBU PROF",
+    zone: "Sénégal",
+    domaines: ["Éducation", "Formation professionnelle"],
+    contexte: "De nombreux enseignants du primaire au Sénégal sont allophones ou ont un faible niveau en français, ce qui nuit à la qualité de l'enseignement. Un outil IA adapté peut renforcer leurs compétences linguistiques et pédagogiques.",
+    objectifs: "Améliorer les compétences linguistiques et pédagogiques des enseignants allophones ou à faible niveau de français via un outil IA accessible hors ligne, évalué par un essai contrôlé randomisé (RCT).",
+    approche: "Assistant IA pédagogique personnalisé déployé hors ligne, adapté au niveau de chaque enseignant, avec évaluation rigoureuse de l'impact sur les apprentissages.",
+    activites: "Phase 2 d'un RCT auprès de 500 enseignants ; déploiement de l'application d'apprentissage des langues ; mesure de l'impact sur les pratiques pédagogiques et les résultats des élèves.",
+    langues: ["Français"], evaluation: "RCT", statut: "en cours",
+    chronogramme: "Janvier 2025 – Décembre 2026", mode: "Hors ligne & en ligne",
+    hardware: "Ideas Cube / Android", populations: "Enseignants du primaire (allophones ou faible niveau français)",
+    portee: "500 enseignants (Phase 2 RCT)", indicateurs: "En cours d'évaluation",
+    partenaires: "Ministère de l'Éducation, INEADE, FID",
+    budget_total: 50000, budget_securise: 200000,
+    scale_up: "Généralisation nationale selon les résultats du RCT.",
+    inria: "Modèles adaptatifs de niveau linguistique ; évaluation automatique des compétences.",
+    accent: "coral",
+    mapCenter: [14.4974, -14.4524], mapZoom: 6,
+    markers: [{ pos: [14.4974, -14.4524], label: "Sénégal" }]
+  },
+  {
+    nom: "kSANTÉ",
+    zone: "Sénégal & Côte d'Ivoire",
+    domaines: ["Santé", "Formation professionnelle"],
+    contexte: "Les agents de santé communautaire (ASC) dans les zones rurales d'Afrique de l'Ouest manquent d'accès à des ressources médicales de qualité en langues locales. Un assistant IA hors ligne peut renforcer leurs capacités et améliorer la qualité des soins.",
+    objectifs: "Fournir aux agents de santé communautaire un assistant IA médical accessible hors ligne, en français et en wolof, aligné sur les protocoles sanitaires nationaux.",
+    approche: "LLM fine-tuné sur les protocoles de santé nationaux, déployé sur Ideas Cube, en français et en wolof, pour assister les ASC dans leurs interventions.",
+    activites: "Fine-tuning d'un LLM sur les protocoles de santé ; déploiement d'une application mobile ; formation des ASC ; évaluation de l'impact sur la qualité des soins.",
+    langues: ["Français", "Wolof"], evaluation: "À définir", statut: "en cours",
+    chronogramme: "2025 - aujourd'hui", mode: "Hors ligne", hardware: "Ideas Cube",
+    populations: "Agents de santé communautaire (ASC)",
+    portee: "30 000 bénéficiaires", indicateurs: "12% augmentation de connaissances en santé, 93% déclarent que l'assistant IA les aide à mieux comprendre les maladies et traitements. ",
+    partenaires: "Ministère de la Santé, Fondation Gates, Institut Pasteur",
+    budget_total: null, budget_securise: null,
+    scale_up: "Extension régionale selon les résultats de la phase pilote.",
+    inria: "Fine-tuning frugal sur corpus médical ; traitement NLP des langues à faibles ressources (wolof).",
+    accent: "green",
+    mapCenter: [9.5, -7.5], mapZoom: 2,
+    markers: [
+      { pos: [14.4974, -14.4524], label: "Sénégal" },
+      { pos: [7.5399, -5.5471], label: "Côte d'Ivoire" }
+    ]
+  },
+  {
+    nom: "TUTOBAC",
+    zone: "Afrique de l'Ouest (Sénégal…)",
+    domaines: ["Éducation"],
+    contexte: "Les lycéens préparant le baccalauréat dans les zones sous-desservies manquent d'accès à un tutorat personnalisé, à des supports de révision actualisés et aux moyens pour financer des cours de soutien privés.",
+    objectifs: "Offrir à 100 000 lycéens un tuteur IA personnel, accessible hors ligne, adapté au programme du baccalauréat national.",
+    approche: "Tuteur IA personnalisé déployé sur les téléphones mobiles (Android), couvrant les matières du baccalauréat avec des exercices adaptatifs et des explications en langage simple.",
+    activites: "Développement du tuteur IA ; alignement sur les programmes nationaux ; déploiement dans les établissements sous-desservis ; évaluation de l'impact sur les résultats au bac.",
+    langues: ["Français"], evaluation: "À définir", statut: "en cours",
+    chronogramme: "2026 - aujourd'hui", mode: "Hors ligne & en ligne",
+    hardware: "Android",
+    populations: "Lycéens (15–18 ans) préparant le baccalauréat",
+    portee: "100 000 élèves", indicateurs: "5000+ usagers",
+    partenaires: "Eramet, Ministère de la Jeunesse",
+    budget_total: null, budget_securise: null,
+    scale_up: "Généralisation nationale ; adaptation à d'autres pays francophones.",
+    inria: "Systèmes adaptatifs de tutorat ; génération d'exercices contextualisés.",
+    accent: "coral",
+    mapCenter: [14.4974, -14.4524], mapZoom: 5,
+    markers: [{ pos: [14.4974, -14.4524], label: "Sénégal" }]
+  },
+  {
+    nom: "BSF Library SofIA",
+    zone: "Europe, Moyen-Orient, Afrique, zones de crise",
+    domaines: ["Éducation", "Culture", "Citoyenneté"],
+    contexte: "Les populations vulnérables (réfugiés, personnes marginalisées, populations privées d'accès à l'éducation) n'ont souvent pas accès aux ressources culturelles et éducatives. La bibliothèque numérique SofIA de BSF vise à combler ce fossé avec une IA intégrée multilingue.",
+    objectifs: "Déployer une bibliothèque numérique IA accessible hors ligne, dans 36 langues, à destination des populations vulnérables dans les zones de crise et d'exclusion.",
+    approche: "Système IA de recommandation et d'assistance intégré à la bibliothèque numérique BSF, opérationnel hors ligne et en ligne, adapté à 36 langues.",
+    activites: "Développement du moteur IA de SofIA ; intégration de ressources éducatives et culturelles ; déploiement dans les contextes de crise ; formation des médiateurs BSF.",
+    langues: ["36 langues"], evaluation: "n/a", statut: "envisagé",
+    chronogramme: "à definir", mode: "Hors ligne & en ligne",
+    hardware: "Ideas Cube & tablettes",
+    populations: "Réfugiés, personnes marginalisées, populations en zones de crise",
+    portee: "85 000 bénéficiaires", indicateurs: "En cours d'évaluation",
+    partenaires: "à définir",
+    budget_total: 300000, budget_securise: 0,
+    scale_up: "Extension géographique et linguistique ; intégration dans les programmes terrain BSF.",
+    inria: "NLP multilingue pour 36 langues ; moteur de recommandation adaptatif ; compression de modèles pour déploiement offline.",
+    accent: "navy",
+    mapCenter: [30, 15], mapZoom: 2,
+    markers: [
+      { pos: [48.8566, 2.3522], label: "Europe (BSF)" },
+      { pos: [50.4501, 30.5234], label: "Ukraine" },
+      { pos: [33.8869, 9.5375], label: "Afrique du Nord" },
+      { pos: [14.4974, -14.4524], label: "Afrique de l'Ouest" },
+      { pos: [3.8480, 11.5021], label: "Afrique Centrale" }
+    ]
+  },
+  {
+    nom: "AI Social Club",
+    zone: "Sénégal, Côte d'Ivoire",
+    domaines: ["Éducation", "Souveraineté numérique"],
+    contexte: "Le développement de l'IA en Afrique de l'Ouest est freiné par le manque de données d'entraînement en langues locales (wolof, pulaar, soninké, dioula, sérère, mandingue) et par l'absence d'un écosystème local de R&D en IA.",
+    objectifs: "Le projet créera des ressources linguistiques ouvertes et des outils d’IA plus performants dans les langues nationales, afin d’accélérer le développement de modèles de haute qualité pour les langues africaines, de favoriser une éducation plus inclusive et de renforcer l’innovation locale ainsi que la souveraineté linguistique.",
+    approche: "Programme de 18 mois associant BSF, MILA et Pleias pour développer des modèles IA en langues locales et former un écosystème local de chercheurs et praticiens.",
+    activites: "Collecte et curation de données en langues locales ; formation de chercheurs locaux ; développement de Small Language Models ; partage des ressources en open source.",
+    langues: ["Wolof", "Pulaar", "Soninké", "Dioula", "Sérère", "Mandingue"],
+    evaluation: "À définir", statut: "envisagé",
+    chronogramme: "18 mois (à démarrer)", mode: "Hybride", hardware: "Serveurs / cloud",
+    populations: "Chercheurs, développeurs, communautés locales",
+    portee: "Écosystème IA francophone", indicateurs: "À définir",
+    partenaires: "MILA, Pleias",
+    budget_total: 900000, budget_securise: 0,
+    scale_up: "Constitution d'un centre d'excellence IA pour l'Afrique de l'Ouest.",
+    inria: "Collaboration pour le développement de LLMs en langues africaines ; partage d'infrastructures de calcul ; co-publication scientifique.",
+    accent: "green",
+    mapCenter: [9.5, -7.5], mapZoom: 5,
+    markers: [
+      { pos: [14.4974, -14.4524], label: "Sénégal" },
+      { pos: [7.5399, -5.5471], label: "Côte d'Ivoire" }
+    ]
+  },
+  {
+    nom: "kNoma",
+    zone: "Nigeria",
+    domaines: ["Agriculture climatique", "Résilience alimentaire"],
+    contexte: "Les agriculteurs et agents d'extension agricole au Nigeria font face à des défis croissants liés au changement climatique, sans accès à des conseils agronomiques adaptés en hausa. Les femmes et les déplacés internes (IDPs) sont particulièrement vulnérables.",
+    objectifs: "Fournir aux agents d'extension agricole et aux agriculteurs un assistant IA en hausa et en anglais, accessible hors ligne, pour améliorer les pratiques agricoles et la résilience alimentaire.",
+    approche: "Assistant IA agronomique déployé hors ligne en hausa et en anglais, sur Ideas Cube, avec des conseils adaptés au climat local et aux cultures locales.",
+    activites: "Développement du modèle IA en hausa ; curation de données agronomiques locales ; déploiement pilote auprès des agents d'extension ; évaluation de l'impact sur les pratiques.",
+    langues: ["Hausa", "Anglais"], evaluation: "À définir", statut: "envisagé",
+    chronogramme: "À définir", mode: "Hors ligne & en ligne",
+    hardware: "Ideas Cube & Android",
+    populations: "Agents d'extension agricole (AEWs), agriculteurs, femmes, déplacés internes (IDPs)",
+    portee: "À définir", indicateurs: "À définir", partenaires: "À identifier",
+    budget_total: 300000, 
+    scale_up: "Extension à d'autres États du Nigeria et aux pays voisins.",
+    inria: "NLP en hausa (langue à faibles ressources) ; modèles adaptatifs pour conseils agronomiques localisés.",
+    accent: "green",
+    mapCenter: [9.0820, 8.6753], mapZoom: 5,
+    markers: [{ pos: [9.0820, 8.6753], label: "Nigeria" }]
+  },
+  {
+    nom: "PreventAI",
+    zone: "République Démocratique du Congo",
+    domaines: ["Santé", "Humanitaire"],
+    contexte: "Les OSC et agents de santé communautaires en RDC manquent de ressources accessibles pour la préparation et la réponse aux épidémies, dans un contexte de connectivité très limitée et de fragilité institutionnelle.",
+    objectifs: "Doter les OSC locales et les agents de santé communautaires d'un outil IA de préparation épidémique, accessible hors ligne, pour renforcer la résilience sanitaire des communautés.",
+    approche: "Cartes de préparation épidémique IA, déployées hors ligne, partageables entre utilisateurs, avec des protocoles adaptés au contexte RDC.",
+    activites: "Développement de l'outil IA de cartographie épidémique ; adaptation aux protocoles sanitaires congolais ; déploiement pilote auprès de 50 OSC ; évaluation de l'impact.",
+    langues: ["Français"], evaluation: "À définir", statut: "envisagé",
+    chronogramme: "À définir", mode: "Hors ligne",
+    hardware: "Ideas Cube / Android",
+    populations: "OSC locales, agents de santé communautaires, acteurs humanitaires de première ligne",
+    portee: "50 OSC directement ; ~1 000 bénéficiaires indirects par carte partagée",
+    indicateurs: "150 - 200K€", partenaires: "Première Urgence Internationale",
+    budget_total: null, budget_securise: null,
+    scale_up: "Extension à d'autres zones de crise en Afrique subsaharienne.",
+    inria: "Modèles épidémiologiques embarqués ; NLP en français pour des contextes humanitaires ; déploiement sur hardware frugal.",
+    accent: "navy",
+    mapCenter: [-4.0383, 21.7587], mapZoom: 5,
+    markers: [{ pos: [-4.0383, 21.7587], label: "RDC" }]
+  }
+];
+
+// ──────────────────────────────────────────────────────────────────
+// MAP HELPERS
+// ──────────────────────────────────────────────────────────────────
+const TILES = 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png';
+const TILES_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>';
+const TILES_OVERVIEW = 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png';
+
+const STATUS_COLOR = {
+  'en cours':  '#00523C',
+  'terminé':   '#1a6fc4',
+  'envisagé':  '#b07700'
+};
+
+function makeMarkerIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:14px;height:14px;border-radius:50%;
+      background:${color};border:2.5px solid white;
+      box-shadow:0 1px 6px rgba(0,0,0,0.4);
+    "></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+}
+
+function makeOverviewIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:18px;height:18px;border-radius:50%;
+      background:${color};border:3px solid rgba(255,255,255,0.9);
+      box-shadow:0 2px 8px rgba(0,0,0,0.5);
+      cursor:pointer;
+    "></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
+  });
+}
+
+// Track mini-maps to destroy/re-init on filter
+const cardMaps = {};
+
+// ──────────────────────────────────────────────────────────────────
+// OVERVIEW MAP
+// ──────────────────────────────────────────────────────────────────
+let overviewMap = null;
+
+function initOverviewMap() {
+  if (typeof L === 'undefined') return; // Leaflet failed to load (e.g. blocked CDN)
+  overviewMap = L.map('overviewMap', {
+    center: [15, 15], zoom: 2,
+    scrollWheelZoom: false,
+    zoomControl: true,
+    attributionControl: true
+  });
+
+  L.tileLayer(TILES_OVERVIEW, {
+    attribution: TILES_ATTR,
+    subdomains: 'abcd', maxZoom: 19
+  }).addTo(overviewMap);
+
+  // Add a marker for each project (one per project at first marker position)
+  PROJECTS.forEach((p, idx) => {
+    const color = STATUS_COLOR[p.statut] || '#FC6854';
+    const icon = makeOverviewIcon(color);
+
+    p.markers.forEach((m, mi) => {
+      const marker = L.marker(m.pos, { icon }).addTo(overviewMap);
+
+      // Popup only on first marker of each project
+      if (mi === 0) {
+        const popupHtml = `
+          <div class="map-popup" onclick="openDrawer(${idx});closePopup()">
+            <div class="map-popup-name">${p.nom}</div>
+            <div class="map-popup-zone">📍 ${p.zone}</div>
+            <span class="map-popup-btn">En savoir plus →</span>
+          </div>`;
+        marker.bindPopup(popupHtml, { maxWidth: 220, minWidth: 180 });
+        marker.on('click', () => marker.openPopup());
+      }
+    });
+  });
+}
+
+function closePopup() {
+  if (overviewMap) overviewMap.closePopup();
+}
+
+// ──────────────────────────────────────────────────────────────────
+// CARD MAPS
+// ──────────────────────────────────────────────────────────────────
+function initCardMaps(visibleProjects) {
+  if (typeof L === 'undefined') return; // Leaflet failed to load
+  // Destroy existing card maps
+  Object.values(cardMaps).forEach(m => m.remove());
+  Object.keys(cardMaps).forEach(k => delete cardMaps[k]);
+
+  visibleProjects.forEach((p) => {
+    const idx = PROJECTS.indexOf(p);
+    const el = document.getElementById(`cardmap-${idx}`);
+    if (!el) return;
+
+    const m = L.map(el, {
+      center: p.mapCenter,
+      zoom: p.mapZoom,
+      zoomControl: false,
+      scrollWheelZoom: false,
+      dragging: false,
+      doubleClickZoom: false,
+      keyboard: false,
+      attributionControl: false,
+      touchZoom: false
+    });
+
+    L.tileLayer(TILES, {
+      attribution: TILES_ATTR,
+      subdomains: 'abcd', maxZoom: 19
+    }).addTo(m);
+
+    const color = STATUS_COLOR[p.statut] || '#FC6854';
+    p.markers.forEach(mk => {
+      L.marker(mk.pos, { icon: makeMarkerIcon(color) }).addTo(m);
+    });
+
+    cardMaps[idx] = m;
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────
+// HELPERS
+// ──────────────────────────────────────────────────────────────────
+function fmtBudget(v) {
+  if (!v || v === 'à completer') return 'À définir';
+  if (typeof v === 'number') return new Intl.NumberFormat('fr-FR', {style:'currency',currency:'EUR',maximumFractionDigits:0}).format(v);
+  return v;
+}
+function statusLabel(s) { return {'en cours':'En cours','terminé':'Terminé','envisagé':'Envisagé'}[s] || 'Envisagé'; }
+function statusClass(s) { return {'en cours':'badge-encours','terminé':'badge-termine','envisagé':'badge-envisage'}[s] || 'badge-envisage'; }
+
+// ──────────────────────────────────────────────────────────────────
+// STATS
+// ──────────────────────────────────────────────────────────────────
+function buildStats() {
+  const total = PROJECTS.length;
+  const encours = PROJECTS.filter(p => p.statut === 'en cours').length;
+  const termines = PROJECTS.filter(p => p.statut === 'terminé').length;
+  const budgetTotal = PROJECTS.reduce((s, p) => s + (typeof p.budget_total === 'number' ? p.budget_total : 0), 0);
+  document.getElementById('statsband').innerHTML = `
+    <div class="stat"><span class="stat-num">${total}</span><span class="stat-label">Projets</span></div>
+    <div class="stat"><span class="stat-num">${encours}</span><span class="stat-label">En cours</span></div>
+    <div class="stat"><span class="stat-num">${termines}</span><span class="stat-label">Terminé</span></div>
+    <div class="stat"><span class="stat-num">${(budgetTotal/1e6).toFixed(1)} M€</span><span class="stat-label">Budget identifié</span></div>
+    <div class="stat"><span class="stat-num">8</span><span class="stat-label">Pays</span></div>
+  `;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// FILTERS & RENDER
+// ──────────────────────────────────────────────────────────────────
+let currentFilter = 'tous';
+let currentSearch = '';
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  renderCards();
+}
+function filterCards() {
+  currentSearch = document.getElementById('searchInput').value.toLowerCase();
+  renderCards();
+}
+function matchesFilter(p) {
+  if (currentFilter === 'tous') return true;
+  if (currentFilter === 'hors ligne') return p.mode && p.mode.toLowerCase().includes('hors ligne');
+  return p.statut === currentFilter;
+}
+function matchesSearch(p) {
+  if (!currentSearch) return true;
+  const hay = [p.nom, p.zone, p.domaines.join(' '), p.approche, p.populations, p.partenaires].join(' ').toLowerCase();
+  return hay.includes(currentSearch);
+}
+
+function renderCards() {
+  const grid = document.getElementById('projectGrid');
+  const visible = PROJECTS.filter(p => matchesFilter(p) && matchesSearch(p));
+  document.getElementById('countLabel').textContent = `${visible.length} projet${visible.length > 1 ? 's' : ''}`;
+
+  if (visible.length === 0) {
+    grid.innerHTML = '<div class="no-results">Aucun projet ne correspond à votre recherche.</div>';
+    return;
+  }
+
+  grid.innerHTML = visible.map((p) => {
+    const idx = PROJECTS.indexOf(p);
+    const bclass = statusClass(p.statut);
+    const tags = p.domaines.slice(0, 2).map(d => `<span class="tag coral">${d}</span>`).join('');
+    const modeTag = p.mode ? `<span class="tag">${p.mode}</span>` : '';
+    return `
+    <div class="card" onclick="openDrawer(${idx})">
+      <div class="card-map-wrap">
+        <div class="card-map" id="cardmap-${idx}"></div>
+        <div class="card-map-overlay" onclick="openDrawer(${idx})"></div>
+        <div class="card-map-badge">
+          <span class="badge ${bclass}">${statusLabel(p.statut)}</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="card-title">${p.nom}</div>
+        <p class="card-desc">${p.objectifs}</p>
+        <div class="card-tags">${tags}${modeTag}</div>
+      </div>
+      <div class="card-footer">
+        <div class="card-meta">
+          <strong>📍 <span class="zone-text" title="${p.zone}">${p.zone}</span></strong>
+          <span>${fmtBudget(p.budget_total)}</span>
+        </div>
+        <button class="look-btn" onclick="event.stopPropagation();openDrawer(${idx})">En savoir plus →</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Init card maps after DOM update
+  setTimeout(() => initCardMaps(visible), 80);
+}
+
+// ──────────────────────────────────────────────────────────────────
+// DRAWER
+// ──────────────────────────────────────────────────────────────────
+function openDrawer(idx) {
+  const p = PROJECTS[idx];
+  document.getElementById('overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  document.getElementById('drawerBadges').innerHTML = `
+    <span class="badge ${statusClass(p.statut)}">${statusLabel(p.statut)}</span>
+    ${p.mode ? `<span class="badge" style="background:#eee;color:#555">${p.mode}</span>` : ''}
+    ${p.domaines.map(d => `<span class="badge" style="background:#eee;color:#555">${d}</span>`).join('')}
+  `;
+  document.getElementById('drawerTitle').textContent = p.nom;
+  document.getElementById('drawerSubtitle').textContent = p.zone + (p.chronogramme && p.chronogramme !== 'À définir' ? ' · ' + p.chronogramme : '');
+
+  const pct = (p.budget_total && p.budget_securise) ? Math.min(100, Math.round(p.budget_securise / p.budget_total * 100)) : null;
+  document.getElementById('kpiRow').innerHTML = `
+    <div class="kpi">
+      <div class="kpi-value">${p.portee && p.portee !== 'n/a' ? p.portee.split(/[,;]/)[0].trim() : '—'}</div>
+      <div class="kpi-label">Bénéficiaires</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">${fmtBudget(p.budget_total)}</div>
+      <div class="kpi-label">Budget total</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-value">${p.langues.length > 1 ? p.langues.length + ' langues' : p.langues[0] || '—'}</div>
+      <div class="kpi-label">Langue(s)</div>
+    </div>
+  `;
+
+  let html = '';
+  html += `<div class="section-block"><div class="section-label">Contexte & Problème</div><div class="section-text">${p.contexte}</div></div><div class="section-divider"></div>`;
+  html += `<div class="section-block"><div class="section-label">Objectifs</div><div class="section-text">${p.objectifs}</div></div><div class="section-divider"></div>`;
+  html += `<div class="section-block"><div class="section-label">Approche BSF</div><div class="callout"><div class="callout-text">${p.approche}</div></div></div>`;
+  if (p.activites) html += `<div class="section-block"><div class="section-label">Activités clés</div><div class="section-text">${p.activites}</div></div>`;
+  html += `<div class="section-divider"></div>`;
+  html += `<div class="section-block"><div class="section-label">Informations opérationnelles</div>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-key">Zone géographique</div><div class="info-val">${p.zone}</div></div>
+      <div class="info-item"><div class="info-key">Population cible</div><div class="info-val">${p.populations}</div></div>
+      <div class="info-item"><div class="info-key">Mode de déploiement</div><div class="info-val">${p.mode || '—'}</div></div>
+      <div class="info-item"><div class="info-key">Hardware</div><div class="info-val">${p.hardware || '—'}</div></div>
+      <div class="info-item"><div class="info-key">Évaluation</div><div class="info-val">${p.evaluation || '—'}</div></div>
+      <div class="info-item"><div class="info-key">Chronogramme</div><div class="info-val">${p.chronogramme || 'À définir'}</div></div>
+    </div></div>`;
+  html += `<div class="section-block"><div class="section-label">Langues</div><div class="pill-list">${p.langues.map(l=>`<span class="pill">${l}</span>`).join('')}</div></div><div class="section-divider"></div>`;
+  if (p.portee || p.indicateurs) {
+    html += `<div class="section-block"><div class="section-label">Portée & Indicateurs d'impact</div>
+      <div class="info-grid">
+        <div class="info-item"><div class="info-key">Bénéficiaires</div><div class="info-val">${p.portee || '—'}</div></div>
+        <div class="info-item"><div class="info-key">Indicateurs</div><div class="info-val">${p.indicateurs || '—'}</div></div>
+      </div></div><div class="section-divider"></div>`;
+  }
+  html += `<div class="section-block"><div class="section-label">Budget</div>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-key">Budget total</div><div class="info-val">${fmtBudget(p.budget_total)}</div></div>
+      <div class="info-item"><div class="info-key">Budget sécurisé (mars 2026)</div><div class="info-val">${typeof p.budget_securise === 'number' ? fmtBudget(p.budget_securise) : '—'}</div></div>
+    </div>`;
+  if (pct !== null) {
+    html += `<div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%"></div></div>
+    <div class="budget-labels"><span>${pct}% sécurisé</span><span>${fmtBudget(p.budget_total)}</span></div>`;
+  }
+  html += `</div><div class="section-divider"></div>`;
+  html += `<div class="section-block"><div class="section-label">Partenaires actuels</div><div class="section-text">${p.partenaires || '—'}</div></div><div class="section-divider"></div>`;
+  if (p.scale_up) html += `<div class="section-block"><div class="section-label">Pistes de scale-up</div><div class="callout green"><div class="callout-title">🚀 Opportunités de développement</div><div class="callout-text">${p.scale_up}</div></div></div>`;
+  if (p.inria) html += `<div class="section-block"><div class="section-label">Apport potentiel INRIA</div><div class="callout"><div class="callout-title">🔬 Recherche & Infrastructure</div><div class="callout-text">${p.inria}</div></div></div>`;
+
+  document.getElementById('drawerBody').innerHTML = html;
+  document.getElementById('drawer').scrollTop = 0;
+}
+
+function closeDrawer(event) {
+  if (event.target === document.getElementById('overlay')) closeDrawerDirect();
+}
+function closeDrawerDirect() {
+  document.getElementById('overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawerDirect(); });
+
+// ──────────────────────────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────────────────────────
+async function init() {
+  const grid = document.getElementById('projectGrid');
+
+  if (SHEET_URL && SHEET_URL !== 'VOTRE_URL_ICI') {
+    // Show loading state
+    grid.innerHTML = '<div class="no-results" style="padding:60px 0;opacity:.6;">⏳ Chargement des projets depuis Google Sheets…</div>';
+    try {
+      await loadFromSheet(SHEET_URL);
+    } catch(e) {
+      console.warn('Impossible de charger depuis Google Sheets, utilisation des données locales.', e);
+      grid.innerHTML = '<div class="no-results" style="padding:40px 0;color:#c0392b;">⚠️ Erreur de chargement depuis Google Sheets. Rechargez la page ou vérifiez l\'URL.</div>';
+      PROJECTS = PROJECTS_FALLBACK.slice();
+    }
+  } else {
+    // No sheet URL configured yet — use fallback data
+    PROJECTS = PROJECTS_FALLBACK.slice();
+  }
+
+  buildStats();
+  renderCards();
+  setTimeout(initOverviewMap, 150);
+}
+init();
+</script>
+</body>
+</html>
